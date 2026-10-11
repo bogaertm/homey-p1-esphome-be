@@ -2,7 +2,20 @@
 
 ESPHome firmware voor de Homey Energy Dongle, afgestemd op de digitale meter van Fluvius. De dongle leest de P1 poort volledig lokaal uit en stuurt alles rechtstreeks naar Home Assistant via de native ESPHome API. Geen cloud, geen Homey nodig.
 
-Getest: config gevalideerd en firmware succesvol gecompileerd met ESPHome 2026.9.1.
+Getest met ESPHome 2026.9.1: ESP32 firmware compileert foutloos en de integratietest slaagt volledig (32/32), zie [Testen](#testen).
+
+## Snelheid
+
+De Fluvius meter stuurt elke seconde een telegram. Elk telegram komt binnen ongeveer 5 ms na de laatste byte in Home Assistant aan.
+
+| Instelling | Waarom |
+|---|---|
+| `api: batch_delay: 0ms` | ESPHome bundelt updates standaard 100 ms, nu gaan ze meteen weg |
+| `wifi: power_save_mode: none` | Geen vertraging door WiFi energiebesparing |
+| Netto vermogen op telegram | Berekend bij elk telegram in plaats van op een timer |
+| `logger: level: INFO` | Niet elke sensor elke seconde loggen. Zet op `DEBUG` bij foutzoeken |
+
+Sneller dan de meter kan niet: de P1 poort zelf bepaalt het ritme van één telegram per seconde.
 
 ## Wat je krijgt in Home Assistant
 
@@ -65,8 +78,28 @@ Ga naar Instellingen, Dashboards, Energie.
 |---|---|
 | Geen data | Controleer of de P1 poort actief is (pijltje op de meter) |
 | Flashen lukt niet, Improv niet gevonden | Knopje ingedrukt houden tijdens het insteken van de kabel, andere USB-C datakabel proberen |
-| CRC fouten in de logs | Komt soms voor bij lange telegrammen, de buffer staat al op 2048 bytes |
+| CRC fouten in de logs | Af en toe is normaal, het telegram wordt dan genegeerd. Vaak: kabel of contact van de dongle in de P1 poort nakijken |
 | Geen gasverbruik | Gasmeter niet gekoppeld aan de digitale meter, of ander M-Bus kanaal: pas `gas_mbus_id` aan |
+
+## Testen
+
+De map `test` bevat een integratietest die de echte ESPHome DSMR code op Linux draait, er een gesimuleerde Fluvius meter (met geldige CRC, aan 115200 baud) op aansluit en de waarden uitleest via de native API, net zoals Home Assistant.
+
+| Test | Resultaat |
+|---|---|
+| 10 telegrammen aan 1 Hz | 10/10 verwerkt, gemiddeld 5 ms vertraging |
+| Alle sensoren (dag/nacht, injectie, fases, kwartierpiek, 13 maanden, gas) | Correct |
+| Injectie en nachttarief | Netto vermogen negatief, tarief Nacht |
+| Telegram met foute CRC | Genegeerd, volgend telegram terug correct |
+| Telegram zonder gasmeter | Elektriciteit wordt verwerkt |
+| Stresstest 4 Hz aan echte lijnsnelheid | 40/40 verwerkt |
+
+Uitvoeren op Linux (vereist `libmbedtls-dev`):
+
+```
+pip install esphome
+cd test && python run_test.py
+```
 
 ## Terug naar de originele Homey firmware
 Ga in Chrome naar usb.homey.app en volg de stappen. Doe dit ook altijd voor je een dongle terugstuurt of doorverkoopt.
@@ -75,4 +108,5 @@ Ga in Chrome naar usb.homey.app en volg de stappen. Doe dit ook altijd voor je e
 * Handleiding van Athom en ervaringen van gebruikers: [Home Assistant Community](https://community.home-assistant.io/t/how-to-connecting-the-homey-energy-dongle-to-home-assistant-with-esphome/878962)
 * DSMR component en Belgische sensoren: [ESPHome documentatie](https://esphome.io/components/sensor/dsmr/)
 * P1 poort activeren bij Fluvius: [Eniris integraties](https://integrations.eniris.be/Devices/Energy-meter/Fluvius)
+* API batch_delay standaard 100 ms: [ESPHome API documentatie](https://esphome.io/components/api/)
 * Belgische OBIS codes (tarief 1 is dag, tarief 2 is nacht, gas op 0-1:24.2.3): [jensd.be](https://jensd.be/1183/linux/read-data-from-the-belgian-digital-meter-through-the-p1-port)
