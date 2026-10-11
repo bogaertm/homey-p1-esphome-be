@@ -1,0 +1,213 @@
+# Homey Energy Dongle met ESPHome, afgestemd op de Belgische digitale meter (Fluvius)
+# Hardware: ESP32-C6, P1 RX op GPIO4 (geïnverteerd), RGB led op GPIO2, P1 enable op GPIO23
+# Vereist ESPHome 2026.1.0 of nieuwer (dsmr component op esp-idf)
+
+substitutions:
+  name: homey-p1
+  friendly_name: Digitale meter
+  led_brightness: 20%
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.1.0
+  name_add_mac_suffix: false
+  project:
+    name: btechnics.homey-p1-be
+    version: "1.0.0"
+  on_boot:
+    - priority: -100.0
+      then:
+        - light.turn_on:
+            id: led
+            brightness: ${led_brightness}
+            red: 0%
+            green: 0%
+            blue: 100%
+
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${name} fallback"
+    password: !secret ap_password
+
+captive_portal:
+
+improv_serial:
+
+web_server:
+  port: 80
+  version: 3
+  ota: false
+
+# P1 enable lijn van de dongle, moet hoog staan om data te ontvangen
+switch:
+  - platform: gpio
+    id: p1_enable
+    pin: GPIO23
+    restore_mode: ALWAYS_ON
+    internal: true
+
+uart:
+  - id: uart_p1
+    rx_pin:
+      number: GPIO4
+      ignore_strapping_warning: true
+      inverted: true
+    baud_rate: 115200
+    rx_buffer_size: 2048
+
+dsmr:
+  uart_id: uart_p1
+  crc_check: true
+  max_telegram_length: 2048
+  gas_mbus_id: 1
+  water_mbus_id: 2
+
+sensor:
+  - platform: dsmr
+    # Energie afname en injectie (tarief 1 = dag, tarief 2 = nacht)
+    energy_delivered_tariff1:
+      name: "Afname dag"
+    energy_delivered_tariff2:
+      name: "Afname nacht"
+    energy_returned_tariff1:
+      name: "Injectie dag"
+    energy_returned_tariff2:
+      name: "Injectie nacht"
+
+    # Momentaan vermogen (kW)
+    power_delivered:
+      name: "Vermogen afname"
+      id: p_afname
+    power_returned:
+      name: "Vermogen injectie"
+      id: p_injectie
+    power_delivered_l1:
+      name: "Vermogen afname L1"
+    power_delivered_l2:
+      name: "Vermogen afname L2"
+    power_delivered_l3:
+      name: "Vermogen afname L3"
+    power_returned_l1:
+      name: "Vermogen injectie L1"
+    power_returned_l2:
+      name: "Vermogen injectie L2"
+    power_returned_l3:
+      name: "Vermogen injectie L3"
+
+    # Spanning en stroom
+    voltage_l1:
+      name: "Spanning L1"
+    voltage_l2:
+      name: "Spanning L2"
+    voltage_l3:
+      name: "Spanning L3"
+    current_l1:
+      name: "Stroom L1"
+    current_l2:
+      name: "Stroom L2"
+    current_l3:
+      name: "Stroom L3"
+
+    # Capaciteitstarief (kwartierpiek)
+    active_energy_import_current_average_demand:
+      name: "Kwartiervermogen lopend"
+    active_energy_import_maximum_demand_running_month:
+      name: "Maandpiek"
+    active_energy_import_maximum_demand_last_13_months:
+      name: "Gemiddelde maandpiek 13 maanden"
+
+    # Gas via M-Bus
+    gas_delivered_be:
+      name: "Gasverbruik"
+
+    # Water via M-Bus (enkel als er een watermeter gekoppeld is)
+    water_delivered:
+      name: "Waterverbruik"
+
+  # Netto vermogen in W: positief = afname, negatief = injectie
+  - platform: template
+    name: "Netto vermogen"
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 2s
+    lambda: |-
+      if (!id(p_afname).has_state() || !id(p_injectie).has_state()) return {};
+      return (id(p_afname).state - id(p_injectie).state) * 1000.0f;
+
+  - platform: wifi_signal
+    name: "WiFi signaal"
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: dsmr
+    identification:
+      name: "Meter identificatie"
+      entity_category: diagnostic
+    p1_version_be:
+      name: "P1 versie"
+      entity_category: diagnostic
+    timestamp:
+      name: "Tijdstip telegram"
+      entity_category: diagnostic
+    electricity_tariff:
+      name: "Actief tarief"
+      filters:
+        - map:
+            - 0001 -> Dag
+            - 0002 -> Nacht
+    equipment_id:
+      name: "Serienummer meter"
+      entity_category: diagnostic
+    gas_equipment_id_be:
+      name: "Serienummer gasmeter"
+      entity_category: diagnostic
+    telegram:
+      name: "Ruw telegram"
+      internal: true
+
+  - platform: version
+    name: "ESPHome versie"
+    hide_timestamp: true
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: led
+    name: "Led"
+    pin: GPIO2
+    num_leds: 1
+    chipset: ws2812
+    channel_colors: GRB
+    restore_mode: RESTORE_DEFAULT_ON
+
+button:
+  - platform: restart
+    name: "Herstarten"
+    entity_category: config
