@@ -2,6 +2,8 @@
 
 ESPHome firmware voor de Homey Energy Dongle, afgestemd op de digitale meter van Fluvius. De dongle leest de P1 poort volledig lokaal uit en stuurt alles rechtstreeks naar Home Assistant via de native ESPHome API. Geen cloud, geen Homey nodig.
 
+Vereist ESPHome 2026.9.0 of nieuwer (versleutelde OTA updates bestaan pas sinds die versie). Werk in Home Assistant de ESPHome Device Builder bij als je een oudere versie hebt.
+
 Getest met ESPHome 2026.9.1: ESP32 firmware compileert foutloos en de integratietest slaagt volledig (32/32), zie [Testen](#testen).
 
 ## Snelheid
@@ -108,5 +110,6 @@ Ga in Chrome naar usb.homey.app en volg de stappen. Doe dit ook altijd voor je e
 * Handleiding van Athom en ervaringen van gebruikers: [Home Assistant Community](https://community.home-assistant.io/t/how-to-connecting-the-homey-energy-dongle-to-home-assistant-with-esphome/878962)
 * DSMR component en Belgische sensoren: [ESPHome documentatie](https://esphome.io/components/sensor/dsmr/)
 * P1 poort activeren bij Fluvius: [Eniris integraties](https://integrations.eniris.be/Devices/Energy-meter/Fluvius)
+* OTA versleuteling nieuw in 2026.9.0: [ESPHome changelog](https://esphome.io/changelog/2026.9.0/)
 * API batch_delay standaard 100 ms: [ESPHome API documentatie](https://esphome.io/components/api/)
 * Belgische OBIS codes (tarief 1 is dag, tarief 2 is nacht, gas op 0-1:24.2.3): [jensd.be](https://jensd.be/1183/linux/read-data-from-the-belgian-digital-meter-through-the-p1-port)
