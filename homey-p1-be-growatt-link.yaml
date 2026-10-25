@@ -1,0 +1,95 @@
+# Homey Energy Dongle die de meterwaarden ook rechtstreeks doorstuurt naar de
+# Growatt meter emulator (growatt-meter-emulator.yaml) bij de omvormer.
+#
+# Werkt naast Home Assistant: de dongle blijft gewoon alles naar HA sturen.
+# De link naar de emulator gaat rechtstreeks van ESP naar ESP over het lokale netwerk
+# (UDP, versleuteld, met rolling code tegen herhaalde pakketten). HA mag uitvallen.
+#
+# Gebruik deze file in plaats van homey-p1-be.yaml. Beide bestanden moeten in
+# dezelfde map staan (in Home Assistant: de ESPHome map).
+
+substitutions:
+  # Standaard naar iedereen op het LAN. Filtert het netwerk broadcast (bv. UniFi
+  # "Multicast and Broadcast Control"), vul dan het vaste IP van de emulator in.
+  emulator_adres: 255.255.255.255
+
+packages:
+  basis: !include homey-p1-be.yaml
+
+udp:
+  id: p1_udp
+  port: 18511
+  addresses: ["${emulator_adres}"]
+
+packet_transport:
+  - platform: udp
+    udp_id: p1_udp
+    # Alles opnieuw sturen om de 5 s, ook als er niets wijzigt. Bij elk telegram
+    # wordt sowieso meteen verstuurd.
+    update_interval: 5s
+    rolling_code_enable: true
+    encryption:
+      key: !secret p1_link_key
+    # link_seq moet als LAATSTE staan: de emulator rekent bij het binnenkomen van de
+    # hartslag, dan zijn alle andere waarden van hetzelfde pakket al verwerkt.
+    sensors:
+      - link_p_l1
+      - link_p_l2
+      - link_p_l3
+      - link_import
+      - link_export
+      - p1_u_l1
+      - p1_u_l2
+      - p1_u_l3
+      - p1_i_l1
+      - p1_i_l2
+      - p1_i_l3
+      - link_seq
+
+sensor:
+  # Netto vermogen wordt berekend na elk volledig telegram. Op dat moment zijn alle
+  # waarden van hetzelfde telegram binnen, dus de link krijgt een consistente set.
+  - id: !extend netto
+    on_value:
+      - lambda: |-
+          auto net = [](sensor::Sensor *af, sensor::Sensor *in) -> float {
+            float a = af->has_state() ? af->state : 0.0f;
+            float b = in->has_state() ? in->state : 0.0f;
+            return (a - b) * 1000.0f;  // kW naar W, afname positief
+          };
+          auto som = [](sensor::Sensor *x, sensor::Sensor *y) -> float {
+            return (x->has_state() ? x->state : 0.0f) + (y->has_state() ? y->state : 0.0f);
+          };
+          id(link_p_l1).publish_state(net(id(p1_af_l1), id(p1_in_l1)));
+          id(link_p_l2).publish_state(net(id(p1_af_l2), id(p1_in_l2)));
+          id(link_p_l3).publish_state(net(id(p1_af_l3), id(p1_in_l3)));
+          id(link_import).publish_state(som(id(p1_afname_dag), id(p1_afname_nacht)));
+          id(link_export).publish_state(som(id(p1_injectie_dag), id(p1_injectie_nacht)));
+          // Hartslag: telt op bij elk telegram, de emulator ziet zo dat de data vers is
+          float seq = std::isnan(id(link_seq).state) ? 0.0f : id(link_seq).state;
+          id(link_seq).publish_state(fmodf(seq + 1.0f, 1000000.0f));
+
+  - platform: template
+    id: link_seq
+    internal: true
+    update_interval: never
+  - platform: template
+    id: link_p_l1
+    internal: true
+    update_interval: never
+  - platform: template
+    id: link_p_l2
+    internal: true
+    update_interval: never
+  - platform: template
+    id: link_p_l3
+    internal: true
+    update_interval: never
+  - platform: template
+    id: link_import
+    internal: true
+    update_interval: never
+  - platform: template
+    id: link_export
+    internal: true
+    update_interval: never

@@ -1,0 +1,32 @@
+# Growatt meter emulator op het Linux host platform (voor run_growatt_test.py)
+packages:
+  emulator: !include ../growatt-meter-emulator.yaml
+
+esphome:
+  build_path: .esphome/build/emulator-host
+
+host:
+esp32: !remove
+wifi: !remove
+captive_portal: !remove
+web_server: !remove
+ota: !remove
+
+api:
+  port: 6054
+
+uart:
+  - id: !extend uart_rs485
+    tx_pin: !remove
+    rx_pin: !remove
+    port: /tmp/rs485-sim
+
+modbus:
+  - id: !extend rs485
+    flow_control_pin: !remove
+
+udp:
+  port: 18512
+
+sensor:
+  - id: !remove wifi_rssi

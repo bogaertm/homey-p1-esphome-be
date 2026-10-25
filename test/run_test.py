@@ -187,8 +187,10 @@ async def test(master_fd: int, res: Resultaten):
         """Verstuurt zoals een echte P1 lijn: 115200 baud 8N1 = 11520 bytes/s."""
         t_begin = time.perf_counter()
         for k in range(0, len(data), 64):
+            if k:
+                await asyncio.sleep(max(0, t_begin + k / 11520 - time.perf_counter()))
             os.write(master_fd, data[k:k + 64])
-            await asyncio.sleep(max(0, t_begin + (k + 64) / 11520 - time.perf_counter()))
+        stuur_baud.laatste_byte = time.perf_counter()
         return t_begin
 
     def updates_na(t0, naam):
@@ -201,9 +203,9 @@ async def test(master_fd: int, res: Resultaten):
         v = waarden(i)
         data = telegram(v)
         t_begin = await stuur_baud(data)
-        t0 = time.perf_counter()  # laatste byte verzonden
+        t0 = stuur_baud.laatste_byte  # tijdstip van de laatste byte
         doel = round(v["p_af"] * 1000)
-        for _ in range(100):
+        while time.perf_counter() - t0 < 0.5:
             await asyncio.sleep(0.002)
             hit = [t for t, val in updates_na(t0, "Netto vermogen") if round(val) == doel]
             if hit:
@@ -215,6 +217,7 @@ async def test(master_fd: int, res: Resultaten):
     res.check("Vermogen afname bij elk telegram",
               len(updates_na(t_start, "Vermogen afname")) == 10,
               f"{len(updates_na(t_start, 'Vermogen afname'))}/10 updates")
+    res.check("Vertraging gemeten bij elk telegram", len(latenties) == 10, f"{len(latenties)}/10")
     if latenties:
         res.check("Vertraging laatste byte tot Home Assistant", max(latenties) < 30,
                   f"gem {statistics.mean(latenties):.1f} ms, max {max(latenties):.1f} ms")

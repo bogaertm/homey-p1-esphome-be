@@ -92,12 +92,16 @@ sensor:
     # Energie afname en injectie (tarief 1 = dag, tarief 2 = nacht)
     energy_delivered_tariff1:
       name: "Afname dag"
+      id: p1_afname_dag
     energy_delivered_tariff2:
       name: "Afname nacht"
+      id: p1_afname_nacht
     energy_returned_tariff1:
       name: "Injectie dag"
+      id: p1_injectie_dag
     energy_returned_tariff2:
       name: "Injectie nacht"
+      id: p1_injectie_nacht
 
     # Momentaan vermogen (kW)
     power_delivered:
@@ -108,30 +112,42 @@ sensor:
       id: p_injectie
     power_delivered_l1:
       name: "Vermogen afname L1"
+      id: p1_af_l1
     power_delivered_l2:
       name: "Vermogen afname L2"
+      id: p1_af_l2
     power_delivered_l3:
       name: "Vermogen afname L3"
+      id: p1_af_l3
     power_returned_l1:
       name: "Vermogen injectie L1"
+      id: p1_in_l1
     power_returned_l2:
       name: "Vermogen injectie L2"
+      id: p1_in_l2
     power_returned_l3:
       name: "Vermogen injectie L3"
+      id: p1_in_l3
 
     # Spanning en stroom
     voltage_l1:
       name: "Spanning L1"
+      id: p1_u_l1
     voltage_l2:
       name: "Spanning L2"
+      id: p1_u_l2
     voltage_l3:
       name: "Spanning L3"
+      id: p1_u_l3
     current_l1:
       name: "Stroom L1"
+      id: p1_i_l1
     current_l2:
       name: "Stroom L2"
+      id: p1_i_l2
     current_l3:
       name: "Stroom L3"
+      id: p1_i_l3
 
     # Capaciteitstarief (kwartierpiek)
     active_energy_import_current_average_demand:
@@ -199,6 +215,7 @@ text_sensor:
     telegram:
       name: "Ruw telegram"
       internal: true
+      id: p1_telegram
       on_value:
         - component.update: netto
 

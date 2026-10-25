@@ -1,0 +1,40 @@
+# Dongle met Growatt link op het Linux host platform (voor run_growatt_test.py)
+substitutions:
+  emulator_adres: 127.0.0.1
+
+packages:
+  link: !include build/link-host.yaml
+
+esphome:
+  on_boot: !remove
+  build_path: .esphome/build/link-host
+  includes:
+    - psa_stubs.h
+  platformio_options:
+    build_flags:
+      - -Wl,--no-as-needed
+      - -lmbedcrypto
+
+host:
+esp32: !remove
+wifi: !remove
+captive_portal: !remove
+improv_serial: !remove
+web_server: !remove
+ota: !remove
+switch: !remove
+light: !remove
+
+uart:
+  - id: !extend uart_p1
+    rx_pin: !remove
+    port: /tmp/p1-sim-link
+
+sensor:
+  - id: !remove wifi_rssi
+
+# Twee processen op dezelfde machine: elk een eigen poort
+udp:
+  port:
+    listen_port: 18513
+    broadcast_port: 18512
