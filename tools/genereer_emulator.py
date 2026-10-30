@@ -143,6 +143,20 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: "0"
+  # Snuffelaar: welke vragen stelt de omvormer (adres, functiecode, startregister, aantal)
+  - id: vraag_sleutel
+    type: std::array<uint32_t, 16>
+    restore_value: false
+  - id: vraag_aantal
+    type: std::array<uint32_t, 16>
+    restore_value: false
+  - id: onbekend_sleutel
+    type: std::array<uint32_t, 8>
+    restore_value: false
+  - id: foutantwoorden
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
 
 # ---------------------------------------------------------------- link met de dongle --
 udp:
@@ -166,10 +180,65 @@ uart:
     data_bits: 8
     parity: NONE
     stop_bits: 1
-    # Zet logger op DEBUG om alle vragen van de omvormer te zien (handig bij de eerste installatie)
+    # Snuffelaar: elke vraag van de omvormer wordt geteld en in Home Assistant getoond
+    # (sensors "Vragen van omvormer" en "Vragen met lege registers"). Met logger op DEBUG
+    # verschijnen ook alle ruwe bytes in de log.
     debug:
       direction: BOTH
       dummy_receiver: false
+      sequence:
+        - lambda: |-
+            UARTDebug::log_hex(direction, bytes, ' ');
+            if (direction == uart::UART_DIRECTION_TX) {
+              // Ons antwoord: functiecode met hoogste bit = foutmelding
+              if (bytes.size() >= 5 && (bytes[1] & 0x80)) id(foutantwoorden) += 1;
+              return;
+            }
+            auto crc = [](const uint8_t *d, size_t n) -> uint16_t {
+              uint16_t c = 0xFFFF;
+              for (size_t i = 0; i < n; i++) {
+                c ^= d[i];
+                for (int b = 0; b < 8; b++) c = (c & 1) ? (c >> 1) ^ 0xA001 : c >> 1;
+              }
+              return c;
+            };
+            // Registers die de emulator echt invult (elk FP32 = 2 registers)
+            static const uint16_t bediend[] = {@BEDIEND@};
+            auto is_bediend = [&](uint16_t r) -> bool {
+              for (uint16_t a : bediend) if (r == a || r == a + 1) return true;
+              return false;
+            };
+            // Een leesvraag is altijd 8 bytes met geldige CRC
+            for (size_t i = 0; i + 8 <= bytes.size(); i++) {
+              if (crc(&bytes[i], 8) != 0) continue;
+              uint8_t adr = bytes[i], fc = bytes[i + 1];
+              uint16_t start = (bytes[i + 2] << 8) | bytes[i + 3];
+              uint16_t aantal = (bytes[i + 4] << 8) | bytes[i + 5];
+              uint32_t sleutel = ((uint32_t) adr << 24) | ((uint32_t) fc << 16) | start;
+              // Optellen in de lijst van vragen (aantal registers zit in de hoogste bits van de teller)
+              auto &k = id(vraag_sleutel);
+              auto &n = id(vraag_aantal);
+              for (int j = 0; j < 16; j++) {
+                if (n[j] != 0 && k[j] == sleutel && (n[j] >> 20) == aantal) { n[j]++; break; }
+                if (n[j] == 0) { k[j] = sleutel; n[j] = ((uint32_t) aantal << 20) | 1; break; }
+              }
+              // Vraag aan ons adres die we niet (volledig) kunnen beantwoorden?
+              bool onbekend = false;
+              if (adr == ${meter_adres}) {
+                if (fc != 3 && fc != 4) onbekend = true;
+                else for (uint32_t r = start; r < (uint32_t) start + aantal; r++)
+                  if (!is_bediend(r)) { onbekend = true; break; }
+              }
+              if (onbekend) {
+                auto &o = id(onbekend_sleutel);
+                uint32_t ok = ((uint32_t) fc << 24) | ((uint32_t) start << 8) | (aantal & 0xFF);
+                for (int j = 0; j < 8; j++) {
+                  if (o[j] == ok) break;
+                  if (o[j] == 0) { o[j] = ok; break; }
+                }
+              }
+              i += 7;
+            }
 
 modbus:
   - id: rs485
@@ -256,11 +325,57 @@ STAART = """
     update_interval: 10s
     lambda: return id(telegrammen);
 
+  - platform: template
+    name: "Foutantwoorden naar omvormer"
+    accuracy_decimals: 0
+    state_class: total_increasing
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: return id(foutantwoorden);
+
   - platform: wifi_signal
     id: wifi_rssi
     name: "WiFi signaal"
     update_interval: 60s
     entity_category: diagnostic
+
+text_sensor:
+  # Wat de omvormer vraagt: functiecode/adres startregister+aantal xkeer
+  - platform: template
+    name: "Vragen van omvormer"
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: |-
+      std::string uit;
+      char buf[40];
+      for (int j = 0; j < 16; j++) {
+        uint32_t n = id(vraag_aantal)[j];
+        if (n == 0) break;
+        uint32_t k = id(vraag_sleutel)[j];
+        snprintf(buf, sizeof(buf), "%s%02X/%u %04X+%u x%u", uit.empty() ? "" : ", ",
+                 (unsigned) ((k >> 16) & 0xFF), (unsigned) (k >> 24), (unsigned) (k & 0xFFFF),
+                 (unsigned) (n >> 20), (unsigned) (n & 0xFFFFF));
+        if (uit.size() + strlen(buf) > 250) break;
+        uit += buf;
+      }
+      return uit.empty() ? std::string("nog geen vragen") : uit;
+
+  # Vragen aan ons adres met registers die de emulator niet invult (krijgen 0 of een foutmelding)
+  - platform: template
+    name: "Vragen met lege registers"
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: |-
+      std::string uit;
+      char buf[24];
+      for (int j = 0; j < 8; j++) {
+        uint32_t o = id(onbekend_sleutel)[j];
+        if (o == 0) break;
+        snprintf(buf, sizeof(buf), "%s%02X %04X+%u", uit.empty() ? "" : ", ",
+                 (unsigned) (o >> 24), (unsigned) ((o >> 8) & 0xFFFF), (unsigned) (o & 0xFF));
+        uit += buf;
+      }
+      return uit.empty() ? std::string("geen") : uit;
 
 binary_sensor:
   - platform: template
@@ -277,7 +392,8 @@ button:
 
 
 def main():
-    uit = [KOP.replace("@AANTAL@", str(len(REGISTERS)))]
+    bediend = ", ".join(f"0x{r[0]:04X}" for r in REGISTERS)
+    uit = [KOP.replace("@AANTAL@", str(len(REGISTERS))).replace("@BEDIEND@", bediend)]
     for k, (adres, omschrijving, _) in enumerate(REGISTERS):
         uit.append(
             f"      # {omschrijving}\n"

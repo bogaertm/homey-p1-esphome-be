@@ -4,7 +4,7 @@ ESPHome firmware voor de Homey Energy Dongle, afgestemd op de digitale meter van
 
 Vereist ESPHome 2026.9.0 of nieuwer (versleutelde OTA updates bestaan pas sinds die versie). Werk in Home Assistant de ESPHome Device Builder bij als je een oudere versie hebt.
 
-Getest met ESPHome 2026.9.1: alle ESP32 firmwares compileren foutloos en beide integratietests slagen volledig (33/33 en 15/15), zie [Testen](#testen).
+Getest met ESPHome 2026.9.1: alle ESP32 firmwares compileren foutloos en beide integratietests slagen volledig (33/33 en 18/18), zie [Testen](#testen).
 
 Geen kabel mogelijk tussen de digitale meter en een Growatt omvormer? Zie [Growatt meter emulator](#growatt-meter-emulator): de dongle stuurt de waarden dan draadloos naar een ESP32 bij de omvormer die zich voordoet als Eastron SDM630.
 
@@ -112,7 +112,29 @@ De ESP32 bij de omvormer doet zich voor als een Eastron SDM630 v2 op slave adres
 4. **In Home Assistant nakijken** of het toestel Growatt meter de binaire sensor *Data van dongle* op Verbonden zet en of *Totaal vermogen naar omvormer* klopt met *Netto vermogen* van de dongle.
 5. **RS485 aansluiten** op de omvormer. Bij een lange kabel aan beide uiteinden een afsluitweerstand van 120 Ω (jumper op het Waveshare bord).
 6. **In de Growatt de meter activeren** (exportbeperking of meter aan, type Eastron) en de omvormer volledig herstarten.
-7. **Eerste controle.** Zet `logger: level: DEBUG` op de emulator en kijk in de logs welke registers de omvormer opvraagt. Antwoorden met `ILLEGAL_DATA_ADDRESS` of een ander slave adres: laat het weten, dan breiden we de registerkaart uit.
+7. **Snuffelaar nakijken.** Laat de omvormer een paar minuten draaien en kijk in Home Assistant bij het toestel Growatt meter naar de diagnosesensors (zie hieronder). Stuur de twee tekstregels door, dan vullen we de registerkaart aan waar nodig.
+
+### Snuffelaar: wat vraagt de omvormer?
+
+Growatt documenteert niet welke registers de omvormer opvraagt. Daarom telt de emulator elke vraag die over de RS485 lijn binnenkomt en toont dat in Home Assistant, zonder logs te moeten lezen.
+
+| Sensor | Voorbeeld | Betekenis |
+|---|---|---|
+| Vragen van omvormer | `04/2 0000+76 x112` | Functiecode 04, slave adres 2, vanaf register 0x0000, 76 registers, 112 keer gevraagd |
+| Vragen met lege registers | `04 0000+76, 04 0100+2` | Vragen aan ons adres waarin registers zitten die de emulator met 0 invult |
+| Foutantwoorden naar omvormer | `4` | Aantal keer dat de omvormer een foutmelding kreeg (opstart en failsafe) |
+
+Hoe lezen:
+
+| Je ziet | Wat het betekent |
+|---|---|
+| Enkel adres 2 en functiecode 04 | Zoals verwacht |
+| Een ander adres, bv. `04/1` of `04/3` | De omvormer zoekt een ander metertype. Pas `meter_adres` aan (1 = SDM230, 3 = SDM630 v3) |
+| Functiecode 03 | De omvormer leest holding registers (instellingen van de meter). Doorsturen, dat moet apart ingevuld worden |
+| Een register buiten 0x0000 tot 0x004F of 0x0156 | Doorsturen, dat register vullen we dan bij |
+| Foutantwoorden blijven stijgen terwijl Data van dongle Verbonden is | Doorsturen, dan klopt er iets niet |
+
+Met `logger: level: DEBUG` verschijnen daarnaast alle ruwe bytes in de log.
 
 ### Instellingen
 
@@ -173,6 +195,7 @@ De tweede test (`run_growatt_test.py`) draait de dongle en de emulator allebei a
 | Herstel na nieuw telegram | Meteen terug juiste waarden |
 | Monofasige meter | 25/25 juist, L2 en L3 op 0 |
 | Dongle valt volledig uit | Foutmelding na 5,1 s |
+| Snuffelaar via de Home Assistant API | Alle vragen juist geteld, lege registers en ander adres herkend |
 
 Uitvoeren op Linux (vereist `libmbedtls-dev`):
 

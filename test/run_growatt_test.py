@@ -299,6 +299,49 @@ def test(p1, bus: Bus, res: Res, start_link):
     res.check("Foutmelding 5 s na het laatste telegram", t_fail is not None and 4.8 < t_fail < 5.8,
               f"na {t_fail:.2f} s" if t_fail else "nooit")
 
+    print("\n[9] Snuffelaar in Home Assistant: wat vroeg de omvormer?")
+    bus.lees(0x0100, 2)  # register dat de emulator niet invult
+    time.sleep(11)  # de tekstsensors verversen om de 10 s
+    st = lees_api_states(["Vragen van omvormer", "Vragen met lege registers", "Foutantwoorden naar omvormer"])
+    vragen = st.get("Vragen van omvormer", "")
+    leeg = st.get("Vragen met lege registers", "")
+    print(f"      Vragen van omvormer: {vragen}")
+    print(f"      Vragen met lege registers: {leeg}")
+    res.check("Blokvraag, energievraag, FC03 en ander adres herkend",
+              all(x in vragen for x in ("04/2 0000+76", "04/2 0156+2", "03/2 0034+2", "04/1 000C+2")), "")
+    res.check("Lege registers juist aangeduid",
+              "04 0000+76" in leeg and "04 0100+2" in leeg and "0156" not in leeg and "000C" not in leeg, "")
+    res.check("Foutantwoorden geteld", (st.get("Foutantwoorden naar omvormer") or 0) > 0,
+              str(st.get("Foutantwoorden naar omvormer")))
+
+
+def lees_api_states(namen):
+    """Leest sensors van de emulator via de native API, zoals Home Assistant."""
+    import asyncio
+    from aioesphomeapi import APIClient
+
+    sleutel = next(r.split(":", 1)[1].strip().strip('"')
+                   for r in (REPO / "secrets.yaml").read_text().splitlines()
+                   if r.startswith("api_key_emulator:"))
+
+    async def lees():
+        c = APIClient("127.0.0.1", 6054, None, noise_psk=sleutel)
+        await c.connect(login=True)
+        ents, _ = await c.list_entities_services()
+        sleutels = {e.key: e.name for e in ents if e.name in namen}
+        uit = {}
+
+        def cb(s):
+            if s.key in sleutels and not getattr(s, "missing_state", False):
+                uit[sleutels[s.key]] = s.state
+
+        c.subscribe_states(cb)
+        await asyncio.sleep(1.5)
+        await c.disconnect()
+        return uit
+
+    return asyncio.run(lees())
+
 
 def main():
     ap = argparse.ArgumentParser()
